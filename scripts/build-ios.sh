@@ -1,53 +1,112 @@
 #!/bin/bash
 set -euo pipefail
 
-# Build the Rust staticlib for iOS (device + simulator) and assemble an
-# xcframework consumed by ios/qdrant_edge_flutter.podspec.
+# Build the Rust engine as a DYNAMIC framework xcframework for iOS.
 #
-# Requires nightly Rust (qdrant-edge uses unstable features) and the iOS
-# targets; this script installs the targets if missing.
+# Why dynamic: when the host app also links static-binary pods (e.g. MediaPipe/
+# TensorFlow via flutter_gemma) it must use `use_frameworks! :linkage => :static`,
+# which dead-strips our qe_* symbols and clashes on the Rust lib's bundled C deps
+# (zstd, lz4). Shipping a self-contained dynamic framework that exports ONLY the
+# qe_* C ABI isolates everything: no stripping, no duplicate symbols.
+#
+# How: build the staticlib (Rust), then `clang -dynamiclib -force_load` it with
+# an -exported_symbols_list so only qe_* is exported and the bundled C deps stay
+# private to the framework.
+#
+# Requires nightly Rust (rust-toolchain.toml).
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUST_DIR="$SCRIPT_DIR/../rust"
 OUT_DIR="$SCRIPT_DIR/../ios/Frameworks"
+FW=QdrantEdgeFFI                  # dynamic framework + binary name (must differ
+                                  # from the pod name to avoid "multiple commands
+                                  # produce" under use_frameworks!)
 LIB=libqdrant_edge_flutter.a
+MIN_IOS=16.0
 
-TARGETS="aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios"
-
-echo "==> Building iOS targets (release, staticlib only)..."
-# iOS only needs the static library; the cdylib crate-type cannot be linked for
-# iOS (no dynamic libraries), so override crate-type to staticlib per build.
-# cd first so rust-toolchain.toml (nightly) is honored for BOTH `rustup target
-# add` and the build — otherwise targets land on the stable toolchain while the
-# build uses nightly, and nightly can't find std for them.
 cd "$RUST_DIR"
-for t in $TARGETS; do
+for t in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
   rustup target add "$t" 2>/dev/null || true
 done
-for t in $TARGETS; do
+echo "==> Building Rust staticlib for iOS targets..."
+for t in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
   echo "  -> $t"
   cargo rustc --release --target "$t" --crate-type staticlib
 done
 
-mkdir -p "$OUT_DIR"
+EXPORTED="$(mktemp)"
+cat > "$EXPORTED" <<'SYMS'
+_qe_open
+_qe_add
+_qe_search
+_qe_delete
+_qe_delete_by_filter
+_qe_count
+_qe_flush
+_qe_close
+_qe_last_error
+_qe_string_free
+SYMS
+
+SDK_DEVICE="$(xcrun --sdk iphoneos --show-sdk-path)"
+SDK_SIM="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+SYSLIBS=(-lc++ -framework Foundation -framework Security -framework CoreFoundation)
+
+# dylib <out> <target-triple> <sysroot> <staticlib...>
+dylib() {
+  local out="$1" triple="$2" sysroot="$3"; shift 3
+  local force=()
+  for a in "$@"; do force+=(-Wl,-force_load,"$a"); done
+  clang -dynamiclib -target "$triple" -isysroot "$sysroot" \
+    "${force[@]}" \
+    -Wl,-exported_symbols_list,"$EXPORTED" \
+    -install_name "@rpath/$FW.framework/$FW" \
+    "${SYSLIBS[@]}" -o "$out"
+}
+
 TMP="$(mktemp -d)"
-mkdir -p "$TMP/device" "$TMP/sim"
+echo "==> Linking dynamic framework binaries..."
+dylib "$TMP/dev" "arm64-apple-ios$MIN_IOS" "$SDK_DEVICE" \
+  "$RUST_DIR/target/aarch64-apple-ios/release/$LIB"
+dylib "$TMP/sim_arm" "arm64-apple-ios$MIN_IOS-simulator" "$SDK_SIM" \
+  "$RUST_DIR/target/aarch64-apple-ios-sim/release/$LIB"
+dylib "$TMP/sim_x86" "x86_64-apple-ios$MIN_IOS-simulator" "$SDK_SIM" \
+  "$RUST_DIR/target/x86_64-apple-ios/release/$LIB"
+lipo -create "$TMP/sim_arm" "$TMP/sim_x86" -o "$TMP/sim"
 
-# Device slice (arm64) — keep the same basename in each slice directory.
-cp "$RUST_DIR/target/aarch64-apple-ios/release/$LIB" "$TMP/device/$LIB"
+# mkfw <framework-dir> <binary> <platform>
+mkfw() {
+  local dir="$1" bin="$2" platform="$3"
+  mkdir -p "$dir"
+  cp "$bin" "$dir/$FW"
+  cat > "$dir/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleExecutable</key><string>$FW</string>
+  <key>CFBundleIdentifier</key><string>tech.qdrant.qdrantEdgeFlutter</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>$FW</string>
+  <key>CFBundlePackageType</key><string>FMWK</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>MinimumOSVersion</key><string>$MIN_IOS</string>
+  <key>CFBundleSupportedPlatforms</key><array><string>$platform</string></array>
+</dict></plist>
+PLIST
+}
 
-# Simulator slice: fat arm64 + x86_64.
-lipo -create \
-  "$RUST_DIR/target/aarch64-apple-ios-sim/release/$LIB" \
-  "$RUST_DIR/target/x86_64-apple-ios/release/$LIB" \
-  -output "$TMP/sim/$LIB"
+echo "==> Assembling frameworks + xcframework..."
+mkfw "$TMP/device/$FW.framework" "$TMP/dev" iPhoneOS
+mkfw "$TMP/simulator/$FW.framework" "$TMP/sim" iPhoneSimulator
 
-echo "==> Assembling xcframework..."
-rm -rf "$OUT_DIR/qdrant_edge_flutter.xcframework"
+mkdir -p "$OUT_DIR"
+rm -rf "$OUT_DIR/$FW.xcframework"
 xcodebuild -create-xcframework \
-  -library "$TMP/device/$LIB" -headers "$RUST_DIR/include" \
-  -library "$TMP/sim/$LIB"    -headers "$RUST_DIR/include" \
-  -output "$OUT_DIR/qdrant_edge_flutter.xcframework"
+  -framework "$TMP/device/$FW.framework" \
+  -framework "$TMP/simulator/$FW.framework" \
+  -output "$OUT_DIR/$FW.xcframework"
 
 rm -rf "$TMP"
-echo "==> Done: $OUT_DIR/qdrant_edge_flutter.xcframework"
+echo "==> Done: $OUT_DIR/$FW.xcframework (dynamic, exports qe_* only)"

@@ -39,8 +39,16 @@ Dart (QdrantEdge)  ──dart:ffi──▶  Rust C ABI (qe_open/qe_add/qe_search
 
 - The C ABI lives in `rust/src/lib.rs`; the safe wrapper in `rust/src/core.rs`;
   the dense embedder in `rust/src/embed.rs` (cargo feature `dense`, on by default).
-- Dart loads symbols with `DynamicLibrary.process()` (iOS/macOS, static lib) or
+- Dart loads symbols with `DynamicLibrary.process()` (iOS/macOS) or
   `DynamicLibrary.open('libqdrant_edge_flutter.so')` (Android).
+- On iOS the engine ships as a self-contained **dynamic framework**
+  (`QdrantEdgeFFI.framework`) that exports only the `qe_*` C ABI; its bundled C
+  deps (zstd/lz4) stay private inside it. This isolates it from static-binary
+  pods (MediaPipe/TFLite via flutter_gemma) — they coexist with no symbol
+  stripping and no duplicate-symbol clashes. The framework auto-loads with the
+  app, so `DynamicLibrary.process()` finds `qe_*` at runtime (no keepalive
+  needed). The framework name differs from the pod name on purpose, else
+  `use_frameworks!` errors with "multiple commands produce …framework".
 
 ## Install
 
@@ -70,7 +78,7 @@ falls back to stable and fails with `array_windows`).
 
 ```bash
 rustup toolchain install nightly
-sh scripts/build-ios.sh       # → ios/Frameworks/qdrant_edge_flutter.xcframework
+sh scripts/build-ios.sh       # → ios/Frameworks/QdrantEdgeFFI.xcframework (dynamic)
 sh scripts/build-macos.sh     # → macos/Libraries/libqdrant_edge_flutter.a
 cargo install cargo-ndk
 sh scripts/build-android.sh   # → android/src/main/jniLibs/<abi>/libqdrant_edge_flutter.so
@@ -110,15 +118,18 @@ Notes:
 ## Gotchas an assistant should know
 
 - **Nightly Rust is mandatory.** Stable fails (`array_windows`).
-- **iOS dead-stripping:** the `qe_*` C symbols are referenced from a keepalive
-  (and the host app should keep a reference) so the linker doesn't strip them —
-  Dart resolves them at runtime via `dlsym`.
-- **iOS static-linkage conflict (important):** if the app also pulls in static
-  binary pods that force `use_frameworks! :linkage => :static` (e.g. MediaPipe
-  via `flutter_gemma`, TensorFlowLite), the Rust static lib's bundled C deps
-  (zstd, lz4) collide ("duplicate symbols") and/or `qe_*` get stripped. Prefer
-  dynamic frameworks (`use_frameworks!`); if a static-binary dependency is
-  required, isolate this engine in its own dynamic framework.
+- **iOS = dynamic framework `QdrantEdgeFFI`:** built by `clang -dynamiclib
+  -force_load <staticlib> -exported_symbols_list <qe_*>` so only `qe_*` is
+  exported and zstd/lz4 stay private. This is what lets it coexist with
+  flutter_gemma's static MediaPipe/TensorFlowLite under
+  `use_frameworks! :linkage => :static` — no symbol stripping, no duplicate
+  symbols. Do NOT re-introduce a host-side keepalive or a `-force_load` of the
+  vendored lib in the Runner project; the framework auto-loads and
+  `DynamicLibrary.process()` resolves `qe_*`. A stale `-force_load …/libqdrant_edge_flutter.a`
+  baked into `Runner.xcodeproj` causes "Build input file cannot be found".
+- **flutter_gemma combo:** keep the new linker (do NOT add `-ld_classic` — it
+  asserts `dylibToOrdinal` on dynamic frameworks) and ensure no stale
+  `-force_load`. With those, MediaPipe/TFLite + this engine build cleanly.
 - **Dense model files:** all-MiniLM-L6-v2 needs `config.json`, `tokenizer.json`,
   `model.safetensors`; ship them as assets and copy to a real path on first run
   (Rust mmaps the weights). 384-dim, Cosine.

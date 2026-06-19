@@ -24,13 +24,14 @@ BM25 text embedding. No model download, no network.
   s.source_files     = 'Classes/**/*'
   s.dependency 'Flutter'
 
-  # Prebuilt Rust static library (xcframework with device + simulator slices).
-  s.vendored_frameworks = 'Frameworks/qdrant_edge_flutter.xcframework'
+  # Prebuilt Rust engine as a self-contained DYNAMIC framework that exports only
+  # the qe_* C ABI (zstd/lz4 stay private inside it). Named differently from the
+  # pod to avoid "multiple commands produce" under use_frameworks!. Being dynamic
+  # also isolates it from static-binary pods (MediaPipe/TFLite via flutter_gemma):
+  # no symbol stripping, no duplicate-symbol clashes. Dart resolves qe_* at
+  # runtime via DynamicLibrary.process() (the framework auto-loads with the app).
+  s.vendored_frameworks = 'Frameworks/QdrantEdgeFFI.xcframework'
 
-  # NOTE: the qe_* C symbols are referenced from the host app (Runner) so the
-  # linker pulls them out of the vendored static lib instead of dead-stripping
-  # them (Dart resolves them at runtime via dlsym). See the example app's
-  # Runner-Bridging-Header.h + AppDelegate keepalive.
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
   }
