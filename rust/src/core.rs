@@ -14,9 +14,9 @@ use std::path::Path;
 
 use qdrant_edge::bm25_embed::{EdgeBm25, EdgeBm25Config};
 use qdrant_edge::{
-    Distance, EdgeConfig, EdgeShard, EdgeSparseVectorParams, EdgeVectorParams, Fusion, Modifier,
-    NamedQuery, PointId, PointStruct, Prefetch, QueryEnum, QueryRequest, ScoringQuery, Vector,
-    VectorInternal, Vectors, WithPayloadInterface, WithVector,
+    Distance, EdgeConfig, EdgeShard, EdgeSparseVectorParams, EdgeVectorParams, Filter, Fusion,
+    Modifier, NamedQuery, PointId, PointStruct, Prefetch, QueryEnum, QueryRequest, ScoringQuery,
+    Vector, VectorInternal, Vectors, WithPayloadInterface, WithVector,
 };
 use qdrant_edge::{PointInsertOperations, PointOperations, UpdateOperation};
 use serde::{Deserialize, Serialize};
@@ -208,6 +208,17 @@ impl Db {
         serde_json::to_string(&hits).map_err(|e| e.to_string())
     }
 
+    /// Delete all points matching a JSON `Filter` (e.g. payload field match).
+    /// Robust way to remove a whole document regardless of point ids.
+    pub fn delete_by_filter(&self, filter_json: &str) -> Result<(), String> {
+        let filter: Filter =
+            serde_json::from_str(filter_json).map_err(|e| format!("filter json: {e}"))?;
+        let op = UpdateOperation::PointOperation(PointOperations::DeletePointsByFilter(filter));
+        self.shard
+            .update(op)
+            .map_err(|e| format!("delete by filter: {e}"))
+    }
+
     /// Delete a point by numeric id.
     pub fn delete(&self, id: u64) -> Result<(), String> {
         let point_id: PointId =
@@ -277,6 +288,55 @@ mod tests {
 
         // Drop the shard (which flushes) before deleting its directory.
         drop(db2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_removes_from_search_and_count() {
+        let dir = std::env::temp_dir().join(format!("qe_del_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.to_str().unwrap();
+
+        let db = Db::open(path, None).expect("open");
+        db.add(10, "alpha bravo charlie", "{}").unwrap();
+        db.add(11, "delta echo foxtrot", "{}").unwrap();
+        db.flush();
+        assert_eq!(db.count(), 2, "two points stored");
+
+        db.delete(10).expect("delete");
+        db.flush();
+
+        let json = db.search("alpha bravo charlie", 5).unwrap();
+        let hits: Vec<Hit> = serde_json::from_str(&json).unwrap();
+        eprintln!("after delete count={} hits={:?}",
+            db.count(), hits.iter().map(|h| &h.id).collect::<Vec<_>>());
+        assert!(hits.iter().all(|h| h.id != "10"), "deleted point must not appear");
+        assert_eq!(db.count(), 1, "count drops after delete");
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_by_filter_removes_matching() {
+        let dir = std::env::temp_dir().join(format!("qe_delf_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.to_str().unwrap();
+
+        let db = Db::open(path, None).expect("open");
+        db.add(1, "alpha one", r#"{"docId":7}"#).unwrap();
+        db.add(2, "alpha two", r#"{"docId":7}"#).unwrap();
+        db.add(3, "gamma three", r#"{"docId":9}"#).unwrap();
+        db.flush();
+        assert_eq!(db.count(), 3);
+
+        db.delete_by_filter(r#"{"must":[{"key":"docId","match":{"value":7}}]}"#)
+            .expect("delete by filter");
+        db.flush();
+        eprintln!("after filter-delete count={}", db.count());
+        assert_eq!(db.count(), 1, "both docId=7 points removed, docId=9 stays");
+
+        drop(db);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

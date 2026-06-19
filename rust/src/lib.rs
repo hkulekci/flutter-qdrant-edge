@@ -129,6 +129,29 @@ pub unsafe extern "C" fn qe_delete(handle: *mut QeHandle, id: u64) -> i32 {
     }
 }
 
+/// Delete all points matching a JSON filter. Returns 0/-1.
+///
+/// # Safety
+/// See [`qe_add`].
+#[no_mangle]
+pub unsafe extern "C" fn qe_delete_by_filter(
+    handle: *mut QeHandle,
+    filter_json: *const c_char,
+) -> i32 {
+    let Some(h) = handle.as_ref() else {
+        set_last_error("null handle".into());
+        return -1;
+    };
+    let filter = cstr_to_str(filter_json);
+    match h.db.lock().delete_by_filter(filter) {
+        Ok(()) => 0,
+        Err(e) => {
+            set_last_error(e);
+            -1
+        }
+    }
+}
+
 /// Number of stored points, or -1 on error.
 ///
 /// # Safety

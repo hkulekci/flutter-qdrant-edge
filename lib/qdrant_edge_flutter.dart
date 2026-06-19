@@ -137,6 +137,22 @@ class QdrantEdge {
     }
   }
 
+  /// Delete every point matching a Qdrant [filter] (e.g. a payload match).
+  /// Example: `{'must': [{'key': 'docId', 'match': {'value': 7}}]}`.
+  void deleteByFilter(Map<String, dynamic> filter) {
+    _ensureOpen();
+    final filterC = jsonEncode(filter).toNativeUtf8();
+    try {
+      final rc = _bindings.deleteByFilter(_handle, filterC);
+      if (rc != 0) {
+        throw QdrantEdgeException(
+            _takeLastError(_bindings) ?? 'deleteByFilter failed');
+      }
+    } finally {
+      calloc.free(filterC);
+    }
+  }
+
   /// Number of stored points.
   int count() {
     _ensureOpen();

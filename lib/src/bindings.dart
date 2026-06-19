@@ -29,6 +29,9 @@ typedef _QeSearchDart = Pointer<Utf8> Function(
 typedef _QeDeleteC = Int32 Function(Pointer<QeHandle>, Uint64);
 typedef _QeDeleteDart = int Function(Pointer<QeHandle>, int);
 
+typedef _QeDeleteByFilterC = Int32 Function(Pointer<QeHandle>, Pointer<Utf8>);
+typedef _QeDeleteByFilterDart = int Function(Pointer<QeHandle>, Pointer<Utf8>);
+
 typedef _QeCountC = Int64 Function(Pointer<QeHandle>);
 typedef _QeCountDart = int Function(Pointer<QeHandle>);
 
@@ -51,6 +54,9 @@ class QdrantEdgeBindings {
         add = lib.lookupFunction<_QeAddC, _QeAddDart>('qe_add'),
         search = lib.lookupFunction<_QeSearchC, _QeSearchDart>('qe_search'),
         delete = lib.lookupFunction<_QeDeleteC, _QeDeleteDart>('qe_delete'),
+        deleteByFilter =
+            lib.lookupFunction<_QeDeleteByFilterC, _QeDeleteByFilterDart>(
+                'qe_delete_by_filter'),
         count = lib.lookupFunction<_QeCountC, _QeCountDart>('qe_count'),
         flush = lib.lookupFunction<_QeFlushC, _QeFlushDart>('qe_flush'),
         close = lib.lookupFunction<_QeCloseC, _QeCloseDart>('qe_close'),
@@ -63,6 +69,7 @@ class QdrantEdgeBindings {
   final _QeAddDart add;
   final _QeSearchDart search;
   final _QeDeleteDart delete;
+  final _QeDeleteByFilterDart deleteByFilter;
   final _QeCountDart count;
   final _QeFlushDart flush;
   final _QeCloseDart close;

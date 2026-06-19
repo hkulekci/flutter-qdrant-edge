@@ -1,8 +1,9 @@
 # Rust build output
 rust/target/
 
-# Built native artifacts — regenerate with scripts/ (kept out of git on purpose)
-ios/Frameworks/
+# Prebuilt iOS xcframework IS committed so the package works as a git
+# dependency without a Rust toolchain on the consumer side.
+# Android (.so) and macOS (.a) are still built via scripts/ (regenerate locally).
 android/src/main/jniLibs/*/
 macos/Libraries/*
 !macos/Libraries/.gitkeep

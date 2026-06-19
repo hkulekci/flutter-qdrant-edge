@@ -42,6 +42,9 @@ char *qe_search(QeHandle *handle, const char *query, uint32_t limit);
 /* Delete a point by numeric id. 0 ok / -1 error. */
 int32_t qe_delete(QeHandle *handle, uint64_t id);
 
+/* Delete all points matching a JSON filter. 0 ok / -1 error. */
+int32_t qe_delete_by_filter(QeHandle *handle, const char *filter_json);
+
 /* Number of stored points, or -1 on error. */
 int64_t qe_count(QeHandle *handle);
 

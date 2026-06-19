@@ -27,8 +27,10 @@ BM25 text embedding. No model download, no network.
   # Prebuilt Rust static library (xcframework with device + simulator slices).
   s.vendored_frameworks = 'Frameworks/qdrant_edge_flutter.xcframework'
 
-  # Classes/qdrant_edge_flutter_keepalive.c references the Rust symbols so the
-  # linker does not dead-strip them (Dart looks them up at runtime).
+  # NOTE: the qe_* C symbols are referenced from the host app (Runner) so the
+  # linker pulls them out of the vendored static lib instead of dead-stripping
+  # them (Dart resolves them at runtime via dlsym). See the example app's
+  # Runner-Bridging-Header.h + AppDelegate keepalive.
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
   }
