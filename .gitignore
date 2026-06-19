@@ -1,0 +1,24 @@
+# Rust build output
+rust/target/
+
+# Built native artifacts — regenerate with scripts/ (kept out of git on purpose)
+ios/Frameworks/
+android/src/main/jniLibs/*/
+macos/Libraries/*
+!macos/Libraries/.gitkeep
+
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+example/pubspec.lock
+
+# Editor / OS / misc
+.claude/
+.idea/
+*.iml
+firebase-debug.log
+**/.DS_Store

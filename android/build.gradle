@@ -1,0 +1,44 @@
+// Android side of the qdrant_edge_flutter FFI plugin.
+//
+// The native library is a Rust `cdylib` cross-compiled with cargo-ndk into
+// android/src/main/jniLibs/<abi>/libqdrant_edge_flutter.so (see
+// scripts/build-android.sh). Flutter bundles everything under jniLibs
+// automatically, so this module only needs to be a valid AAR library.
+
+group = "tech.qdrant.qdrant_edge_flutter"
+version = "0.1.0"
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.1.0"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+
+android {
+    namespace = "tech.qdrant.qdrant_edge_flutter"
+    compileSdk = 34
+
+    defaultConfig {
+        minSdk = 24
+    }
+
+    // Prebuilt .so files produced by scripts/build-android.sh.
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ["src/main/jniLibs"]
+        }
+    }
+}
