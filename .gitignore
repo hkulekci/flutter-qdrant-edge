@@ -1,6 +1,9 @@
 # Rust build output (sources are tracked; build artifacts are not)
 rust/target/
 
+# Local dev models (e.g. MiniLM) used only for tests — never committed/shipped.
+.models/
+
 # Prebuilt native binaries (iOS xcframework, Android .so, macOS .a) ARE tracked
 # and ship inside the published package, so consumers need no Rust toolchain.
 # Regenerate them with the scripts/ helpers before publishing a new version.

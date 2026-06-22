@@ -11,6 +11,10 @@
 
 mod bm25;
 mod config;
+#[cfg(feature = "dense")]
+mod dense;
+#[cfg(feature = "dense")]
+mod embed;
 mod error;
 mod facet;
 mod ffi_strings;
@@ -32,6 +36,8 @@ pub use config::{
     qe_shard_create_vector_name, qe_shard_delete_vector_name, qe_shard_set_hnsw_config,
     qe_shard_set_optimizers_config, qe_shard_set_vector_hnsw_config,
 };
+#[cfg(feature = "dense")]
+pub use dense::{QeDenseHandle, qe_dense_create, qe_dense_destroy, qe_dense_embed};
 pub use error::qe_last_error;
 pub use facet::qe_shard_facet;
 pub use ffi_strings::qe_free_string;

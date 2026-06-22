@@ -88,14 +88,9 @@ impl TextEmbedder {
 mod tests {
     use super::*;
 
-    // Points at the model downloaded into the example app's assets.
+    // Points at the local dev model (gitignored, downloaded for tests).
     fn model_dir() -> Option<String> {
-        // rust/ -> qdrant_edge_flutter/ -> repo root
-        let dir = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../second_brain/assets/models/minilm"
-        )
-        .to_string();
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/.models/minilm").to_string();
         if std::path::Path::new(&format!("{dir}/model.safetensors")).exists() {
             Some(dir)
         } else {

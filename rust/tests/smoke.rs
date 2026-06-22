@@ -84,3 +84,88 @@ fn create_upsert_search_roundtrip() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(feature = "dense")]
+unsafe fn take_str(p: *mut std::os::raw::c_char) -> String {
+    let s = unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
+    unsafe { qe_free_string(p) };
+    s
+}
+
+/// Dense + BM25 hybrid: embed both vector kinds on-device, upsert mixed points,
+/// and run an RRF-fused query. Skips if the local MiniLM model is absent.
+#[cfg(feature = "dense")]
+#[test]
+fn dense_and_hybrid_query() {
+    use qdrant_edge_flutter::{
+        qe_bm25_create, qe_bm25_destroy, qe_bm25_embed_document, qe_bm25_embed_query,
+        qe_dense_create, qe_dense_destroy, qe_dense_embed, qe_shard_query,
+    };
+    unsafe {
+        let model_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/.models/minilm");
+        if !std::path::Path::new(&format!("{model_dir}/model.safetensors")).exists() {
+            eprintln!("SKIP: dense model not found at {model_dir}");
+            return;
+        }
+
+        let dense = qe_dense_create(cs(model_dir).as_ptr());
+        assert!(!dense.is_null(), "dense create: {}", take_error());
+        let bm25 = qe_bm25_create(cs("").as_ptr());
+        assert!(!bm25.is_null(), "bm25 create: {}", take_error());
+
+        let dir = std::env::temp_dir().join(format!("qe_hybrid_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = cs(dir.to_str().unwrap());
+        let config = cs(
+            r#"{"vectors":{"dense":{"size":384,"distance":"Cosine"}},"sparse_vectors":{"bm25":{"modifier":"idf"}}}"#,
+        );
+        let shard = qe_shard_create(path.as_ptr(), config.as_ptr());
+        assert!(!shard.is_null(), "shard create: {}", take_error());
+
+        let cat = "a cat is sleeping on the sofa";
+        let docs = [(1u64, cat), (2, "quarterly tax revenue rose sharply")];
+        for (id, text) in docs {
+            let dvec = qe_dense_embed(dense, cs(text).as_ptr());
+            assert!(!dvec.is_null(), "dense embed: {}", take_error());
+            let svec = qe_bm25_embed_document(bm25, cs(text).as_ptr());
+            assert!(!svec.is_null(), "bm25 embed: {}", take_error());
+            let point = cs(&format!(
+                r#"[{{"id":{id},"vector":{{"dense":{},"bm25":{}}},"payload":{{"title":"{text}"}}}}]"#,
+                take_str(dvec),
+                take_str(svec),
+            ));
+            assert_eq!(
+                qe_shard_upsert(shard, point.as_ptr()),
+                0,
+                "upsert {id}: {}",
+                take_error()
+            );
+        }
+        qe_shard_flush(shard);
+
+        // Paraphrase of the cat doc — shares almost no words, so dense semantics
+        // must carry it. RRF fuses the dense + BM25 prefetches.
+        let q = "a feline naps on the couch";
+        let qd = take_str(qe_dense_embed(dense, cs(q).as_ptr()));
+        let qs = take_str(qe_bm25_embed_query(bm25, cs(q).as_ptr()));
+        let query = cs(&format!(
+            r#"{{"prefetch":[{{"query":{qd},"using":"dense","limit":10}},{{"query":{qs},"using":"bm25","limit":10}}],"query":{{"fusion":"rrf"}},"limit":5,"with_payload":true}}"#
+        ));
+        let res = qe_shard_query(shard, query.as_ptr());
+        assert!(!res.is_null(), "query failed: {}", take_error());
+        let hits: serde_json::Value = serde_json::from_str(&take_str(res)).unwrap();
+        let arr = hits.as_array().expect("hits array");
+        assert!(!arr.is_empty(), "expected hits");
+        assert_eq!(
+            hits[0]["payload"]["title"].as_str(),
+            Some(cat),
+            "hybrid top hit should be the semantically-matching cat doc: {hits}"
+        );
+
+        qe_shard_close(shard);
+        qe_dense_destroy(dense);
+        qe_bm25_destroy(bm25);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
