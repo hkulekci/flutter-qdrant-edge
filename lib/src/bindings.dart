@@ -60,10 +60,10 @@ class QdrantEdgeBindings {
         count = lib.lookupFunction<_QeCountC, _QeCountDart>('qe_count'),
         flush = lib.lookupFunction<_QeFlushC, _QeFlushDart>('qe_flush'),
         close = lib.lookupFunction<_QeCloseC, _QeCloseDart>('qe_close'),
-        lastError =
-            lib.lookupFunction<_QeLastErrorC, _QeLastErrorDart>('qe_last_error'),
-        stringFree = lib
-            .lookupFunction<_QeStringFreeC, _QeStringFreeDart>('qe_string_free');
+        lastError = lib
+            .lookupFunction<_QeLastErrorC, _QeLastErrorDart>('qe_last_error'),
+        stringFree = lib.lookupFunction<_QeStringFreeC, _QeStringFreeDart>(
+            'qe_string_free');
 
   final _QeOpenDart open;
   final _QeAddDart add;

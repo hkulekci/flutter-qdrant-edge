@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    name: Rust engine tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins nightly (qdrant-edge needs unstable features).
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      # BM25 core tests (open/add/search/delete/count/reload). --no-default-features
+      # drops the optional `dense` model path, so no model download is needed and
+      # the suite stays fast and deterministic on CI.
+      - name: Run engine tests
+        run: cargo test --no-default-features --verbose
+
+  flutter:
+    name: Flutter package checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib example/lib
+
+      # Confirms the package stays publishable (size limits, metadata, layout).
+      - name: Publish dry-run
+        run: flutter pub publish --dry-run
