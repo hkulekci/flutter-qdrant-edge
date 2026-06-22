@@ -32,7 +32,10 @@ if ! command -v cargo-ndk >/dev/null 2>&1; then
   cargo install cargo-ndk
 fi
 
-TARGETS="aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android"
+# 64-bit ABIs only: arm64-v8a (all modern devices — Play Store requires 64-bit)
+# and x86_64 (emulators). The 32-bit ABIs (armeabi-v7a, x86) are unsupported
+# because qdrant-edge's bundled SIMD C deps don't build for 32-bit targets.
+TARGETS="aarch64-linux-android x86_64-linux-android"
 
 echo "==> Building Android ABIs (release)..."
 # cd first so rust-toolchain.toml (nightly) is honored for both `rustup target
@@ -44,7 +47,7 @@ done
 
 # cargo-ndk maps targets to ABI folder names and writes .so into -o/<abi>/.
 cargo ndk \
-  -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 \
+  -t arm64-v8a -t x86_64 \
   -o "$OUT_DIR" \
   build --release
 

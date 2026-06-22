@@ -34,19 +34,19 @@ for t in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
   cargo rustc --release --target "$t" --crate-type staticlib
 done
 
+# Export every qe_* C symbol actually present in the built library — derived
+# from the binary so the list never drifts as the FFI surface grows.
 EXPORTED="$(mktemp)"
-cat > "$EXPORTED" <<'SYMS'
-_qe_open
-_qe_add
-_qe_search
-_qe_delete
-_qe_delete_by_filter
-_qe_count
-_qe_flush
-_qe_close
-_qe_last_error
-_qe_string_free
-SYMS
+# `|| true`: nm returns non-zero for archive members with no symbols, which
+# `set -o pipefail` would otherwise treat as a fatal error. The emptiness check
+# below is the real guard.
+{ nm -gj "$RUST_DIR/target/aarch64-apple-ios/release/$LIB" 2>/dev/null \
+  | grep -E '^_qe_' | sort -u > "$EXPORTED"; } || true
+echo "==> Exporting $(wc -l < "$EXPORTED" | tr -d ' ') qe_* symbols"
+if [ ! -s "$EXPORTED" ]; then
+  echo "ERROR: no qe_* symbols found in $LIB" >&2
+  exit 1
+fi
 
 SDK_DEVICE="$(xcrun --sdk iphoneos --show-sdk-path)"
 SDK_SIM="$(xcrun --sdk iphonesimulator --show-sdk-path)"
