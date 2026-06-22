@@ -1,10 +1,11 @@
 [package]
 name = "qdrant_edge_flutter"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [lib]
+# staticlib -> iOS/macOS; cdylib -> Android .so; rlib -> host tests.
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
@@ -12,6 +13,7 @@ qdrant-edge = "0.7.2"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
 
 # Dense embeddings — pure-Rust model runtime so it cross-compiles to mobile
 # without a per-platform native dependency (unlike ONNX Runtime).
@@ -21,6 +23,9 @@ candle-transformers = { version = "0.10", optional = true }
 # default-features off avoids the oniguruma (C) / esaxx (C++) deps; the BERT
 # WordPiece tokenizer does not need them.
 tokenizers = { version = "0.23", default-features = false, features = ["unstable_wasm"], optional = true }
+
+[dev-dependencies]
+serde_json = "1"
 
 [features]
 default = ["dense"]

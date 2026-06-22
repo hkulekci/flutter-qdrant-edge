@@ -2972,6 +2972,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokenizers 0.23.1",
+ "uuid",
 ]
 
 [[package]]
