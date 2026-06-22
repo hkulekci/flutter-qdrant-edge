@@ -13,7 +13,7 @@ Pod::Spec.new do |s|
   s.summary          = 'On-device vector search for Flutter (qdrant-edge + BM25).'
   s.description      = 'On-device vector search powered by the qdrant-edge Rust crate with built-in BM25 embedding.'
   s.homepage         = 'https://github.com/hkulekci/flutter-qdrant-edge'
-  s.license          = { :type => 'Apache-2.0', :file => '../LICENSE' }
+  s.license          = { :type => 'MIT', :file => '../LICENSE' }
   s.author           = { 'Haydar Külekci' => 'haydar@motivolog.com' }
   s.source           = { :path => '.' }
   s.platform         = :osx, '10.15'
