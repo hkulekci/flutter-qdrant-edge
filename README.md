@@ -1,142 +1,115 @@
 # qdrant_edge_flutter
 
-On-device vector search for Flutter, powered by the [`qdrant-edge`](https://crates.io/crates/qdrant-edge)
-Rust crate. Text goes in, ranked results come out — **BM25 text embedding runs
-inside Rust**, so there is no model download and no network call. Everything is
-local to the device, like SQLite for vectors.
+On-device vector search for Flutter — like SQLite, but for vectors.
+
+Add text, get back ranked results. Everything runs locally on the device:
+**no server, no API key, no network call.** Powered by the
+[`qdrant-edge`](https://crates.io/crates/qdrant-edge) Rust engine through
+`dart:ffi`.
+
+- 🔍 **Lexical search (BM25)** out of the box — text embedding runs in Rust, so
+  there is nothing to download.
+- 🧠 **Hybrid search (optional)** — combine keyword matching with semantic
+  meaning using a small on-device model.
+- 📦 **Zero setup** — prebuilt native binaries ship inside the package. No Rust
+  toolchain needed.
+- 📱 Works on **Android, iOS, and macOS**.
+
+## Install
+
+```bash
+flutter pub add qdrant_edge_flutter
+```
+
+## Quick start
 
 ```dart
+import 'package:qdrant_edge_flutter/qdrant_edge_flutter.dart';
+
+// Open (or create) a database in a folder on the device.
 final db = QdrantEdge.open('${dir.path}/notes');
+
+// Add some documents.
 db.add(1, 'the quick brown fox', payload: {'title': 'fox'});
 db.add(2, 'stock markets rallied on earnings', payload: {'title': 'finance'});
 
+// Search.
 final hits = db.search('brown fox', limit: 5);
-// hits[0].id == '1', with score and payload
+print(hits.first.id);       // 1
+print(hits.first.score);    // relevance score
+print(hits.first.payload);  // {'title': 'fox'}
 
 db.close();
 ```
 
-## How it works
+That's it — the text is embedded and ranked entirely on the device.
 
-```
-Dart (QdrantEdge)  ──dart:ffi──▶  Rust C ABI (qe_open/qe_add/qe_search/...)
-                                       │
-                                  ┌────┴─────┐
-                                  │ EdgeBm25 │  text → sparse vector (TF/IDF)
-                                  └────┬─────┘
-                                       ▼
-                                  EdgeShard  (qdrant-edge: store + HNSW + search)
-                                       ▼
-                                  on-disk shard directory
-```
-
-Each database is created with a single **sparse** vector slot using the IDF
-modifier. `add()` BM25-embeds the document (term-frequency weights); `search()`
-BM25-embeds the query and the shard scores with inverse-document-frequency —
-together that is the BM25 ranking, computed entirely on device.
-
-> This first version ships **lexical (BM25)** search. For semantic search you
-> can store your own dense vectors instead — see "Going dense" below.
-
-## Project layout
-
-```
-qdrant_edge_flutter/
-  rust/                     Rust crate (the native engine)
-    src/core.rs             safe wrapper: open/add/search/delete/count/flush (+ test)
-    src/lib.rs              C ABI exported to Dart
-    src/{error,ffi}.rs      last-error + string helpers
-    include/qdrant_edge_flutter.h   C header (matches lib.rs)
-    rust-toolchain.toml     pins nightly (qdrant-edge needs unstable features)
-  lib/
-    qdrant_edge_flutter.dart   high-level Dart API (use this)
-    src/bindings.dart          raw dart:ffi bindings
-  ios/                      podspec + xcframework (built by script)
-  android/                  gradle module + jniLibs (built by script)
-  scripts/build-ios.sh      → ios/Frameworks/qdrant_edge_flutter.xcframework
-  scripts/build-android.sh  → android/src/main/jniLibs/<abi>/*.so
-  example/                  minimal app using the plugin
-```
-
-## Building the native library
-
-Both builds need **nightly Rust** (pinned via `rust/rust-toolchain.toml`) because
-`qdrant-edge` uses unstable features.
-
-### iOS
-
-```bash
-rustup toolchain install nightly
-sh scripts/build-ios.sh        # produces ios/Frameworks/qdrant_edge_flutter.xcframework
-```
-
-### Android
-
-```bash
-cargo install cargo-ndk
-# Android Studio → SDK Manager → install "NDK (Side by side)"
-sh scripts/build-android.sh    # produces android/src/main/jniLibs/<abi>/libqdrant_edge_flutter.so
-```
-
-Then add the plugin to your app's `pubspec.yaml`:
-
-```yaml
-dependencies:
-  qdrant_edge_flutter:
-    path: ../qdrant_edge_flutter
-```
+> Calls are synchronous. For large imports, run them inside an
+> [isolate](https://dart.dev/language/isolates) so the UI stays responsive.
 
 ## API
 
-| Dart                                   | Description                                  |
-|----------------------------------------|----------------------------------------------|
-| `QdrantEdge.open(path)`                | open/create a database at a directory path   |
-| `db.add(id, text, {payload})`          | upsert a document (BM25-embedded)            |
-| `db.search(query, {limit})`            | `List<QdrantHit>` ranked by similarity       |
-| `db.delete(id)`                        | remove a point                               |
-| `db.count()`                           | number of stored points                      |
-| `db.flush()`                           | persist pending writes                       |
-| `db.close()`                           | release the handle                           |
+| Method                              | What it does                                |
+|-------------------------------------|---------------------------------------------|
+| `QdrantEdge.open(path)`             | Open or create a database at a folder path  |
+| `db.add(id, text, {payload})`       | Add or update a document                    |
+| `db.search(query, {limit})`         | Return results ranked by relevance          |
+| `db.delete(id)`                     | Remove a document                           |
+| `db.deleteByFilter(filter)`         | Remove documents matching a payload filter  |
+| `db.count()`                        | Number of stored documents                  |
+| `db.flush()`                        | Persist pending writes to disk              |
+| `db.close()`                        | Release the database                        |
 
-Calls are synchronous. For large batch ingests, run them inside an isolate to
-keep the UI thread responsive.
+## Hybrid search (keyword + meaning)
 
-## Semantic / hybrid search (dense)
-
-Dense semantic search is **built in** (the `dense` cargo feature, on by default).
-Embedding runs in pure Rust via [`candle`](https://crates.io/crates/candle-core)
-with a sentence-transformers **MiniLM** model — no ONNX Runtime, no per-platform
-native dependency, so it cross-compiles like the rest of the crate.
-
-Pass a model directory to `open` to enable it:
+By default search matches on **keywords** (BM25). To also match on **meaning**
+(so "car" can find "automobile"), pass a model folder when opening the database:
 
 ```dart
-// Lexical (BM25) only:
+// Keyword only:
 final db = QdrantEdge.open('$dir/notes');
 
-// Hybrid (BM25 + semantic, fused with Reciprocal Rank Fusion):
+// Hybrid: keyword + semantic, automatically combined:
 final db = QdrantEdge.open('$dir/notes', modelDir: '$dir/model');
 ```
 
-The `modelDir` must contain `config.json`, `tokenizer.json` and
-`model.safetensors` for an all-MiniLM-L6-v2-style BERT model (384-d). Ship those
-as app assets and copy them to a real path on first launch (the example app does
-this). With a model loaded, each document stores **both** a BM25 sparse vector
-and a dense vector, and `search` runs a hybrid query that RRF-fuses the two — so
-it finds matches by keyword *and* by meaning.
+The model folder must contain `config.json`, `tokenizer.json` and
+`model.safetensors` for an `all-MiniLM-L6-v2`-style model (384 dimensions). Ship
+those as app assets and copy them to a real path on first launch — the
+[`example/`](example/) app shows how.
 
-Cost: the model adds ~90 MB (fp32) of assets and a one-time load at startup. Use
-an fp16/quantized model to shrink it.
+> The model adds ~90 MB of assets and a one-time load at startup. Use an
+> fp16/quantized model to shrink it.
 
-## Notes & caveats
+## Notes
 
-- **Nightly toolchain** is required by `qdrant-edge` 0.7.x. The build scripts
-  `cd` into `rust/` so `rust-toolchain.toml` (nightly) is honored — don't invoke
-  cargo with `--manifest-path` from elsewhere or it falls back to stable.
-- Build the `dense`-disabled variant (`--no-default-features`) for a much smaller
-  BM25-only library if you don't need semantic search.
-- The native static lib is large on disk (LTO archive); the linked binary
-  footprint is far smaller. The MiniLM model adds ~90 MB of assets when dense is
-  used.
-- `qdrant-edge` is in private beta — confirm redistribution terms before
-  publishing this package publicly.
+- `qdrant-edge` is in **beta** — confirm redistribution terms before publishing
+  a build of this package publicly.
+- The package bundles prebuilt binaries for Android, iOS and macOS, so consumers
+  need no Rust toolchain.
+
+## Building from source (contributors)
+
+You only need this to regenerate the native binaries. It requires **nightly
+Rust** (pinned via `rust/rust-toolchain.toml`, because `qdrant-edge` uses
+unstable features).
+
+```bash
+# iOS  → ios/Frameworks/QdrantEdgeFFI.xcframework
+rustup toolchain install nightly
+sh scripts/build-ios.sh
+
+# Android → android/src/main/jniLibs/<abi>/libqdrant_edge_flutter.so
+cargo install cargo-ndk          # plus the NDK via Android Studio → SDK Manager
+sh scripts/build-android.sh
+
+# macOS → macos/Libraries/libqdrant_edge_flutter.a
+sh scripts/build-macos.sh
+```
+
+Want a smaller, keyword-only build? Compile with `--no-default-features` to drop
+the semantic model.
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE).
