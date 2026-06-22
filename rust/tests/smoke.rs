@@ -85,6 +85,71 @@ fn create_upsert_search_roundtrip() {
     }
 }
 
+unsafe fn take_str_any(p: *mut std::os::raw::c_char) -> String {
+    let s = unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
+    unsafe { qe_free_string(p) };
+    s
+}
+
+/// BM25-only (sparse, no dense slot) shard — the config + search shape used by
+/// the Dart TextIndex lexical path. Validates that a sparse-only EdgeConfig is
+/// accepted and that `search` with `using: "bm25"` works.
+#[test]
+fn bm25_only_lexical_search() {
+    use qdrant_edge_flutter::{qe_bm25_create, qe_bm25_destroy, qe_bm25_embed_document};
+    unsafe {
+        let dir = std::env::temp_dir().join(format!("qe_bm25only_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = cs(dir.to_str().unwrap());
+
+        let config = cs(r#"{"sparse_vectors":{"bm25":{"modifier":"idf"}}}"#);
+        let shard = qe_shard_create(path.as_ptr(), config.as_ptr());
+        assert!(!shard.is_null(), "sparse-only create: {}", take_error());
+
+        let bm25 = qe_bm25_create(cs("").as_ptr());
+        assert!(!bm25.is_null(), "bm25 create: {}", take_error());
+
+        let docs = [
+            (1u64, "the quick brown fox jumps over the lazy dog"),
+            (2, "stock markets rallied on strong earnings"),
+        ];
+        for (id, text) in docs {
+            let s = qe_bm25_embed_document(bm25, cs(text).as_ptr());
+            assert!(!s.is_null(), "bm25 embed: {}", take_error());
+            let point = cs(&format!(
+                r#"[{{"id":{id},"vector":{{"bm25":{}}},"payload":{{"title":"{text}"}}}}]"#,
+                take_str_any(s)
+            ));
+            assert_eq!(
+                qe_shard_upsert(shard, point.as_ptr()),
+                0,
+                "upsert {id}: {}",
+                take_error()
+            );
+        }
+        qe_shard_flush(shard);
+
+        let qs = qe_bm25_embed_document(bm25, cs("quick brown fox").as_ptr());
+        let req = cs(&format!(
+            r#"{{"vector":{},"using":"bm25","limit":5,"with_payload":true}}"#,
+            take_str_any(qs)
+        ));
+        let res = qe_shard_search(shard, req.as_ptr());
+        assert!(!res.is_null(), "search failed: {}", take_error());
+        let hits: serde_json::Value = serde_json::from_str(&take_str_any(res)).unwrap();
+        assert_eq!(
+            hits[0]["payload"]["title"].as_str(),
+            Some("the quick brown fox jumps over the lazy dog"),
+            "lexical top hit: {hits}"
+        );
+
+        qe_shard_close(shard);
+        qe_bm25_destroy(bm25);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[cfg(feature = "dense")]
 unsafe fn take_str(p: *mut std::os::raw::c_char) -> String {
     let s = unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();

@@ -1,8 +1,5 @@
-// Minimal example: index a few notes and search them on-device.
-//
-// Run from the example/ directory after building the native library:
-//   sh ../scripts/build-ios.sh      (or build-android.sh)
-//   flutter run
+// Minimal example: index a few notes and search them on-device using the
+// TextIndex convenience (BM25 lexical search; pass a modelDir for hybrid).
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -23,9 +20,9 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage> {
-  QdrantEdge? _db;
+  TextIndex? _index;
   final _controller = TextEditingController(text: 'brown fox');
-  List<QdrantHit> _hits = [];
+  List<Map<String, dynamic>> _hits = [];
   String _status = 'opening...';
 
   static const _seed = <String>[
@@ -44,29 +41,29 @@ class _SearchPageState extends State<SearchPage> {
 
   Future<void> _init() async {
     final dir = await getApplicationDocumentsDirectory();
-    final db = QdrantEdge.open('${dir.path}/notes_db');
-    if (db.count() == 0) {
+    final index = QdrantEdge().openTextIndex('${dir.path}/notes_db');
+    if (index.count() == 0) {
       for (var i = 0; i < _seed.length; i++) {
-        db.add(i + 1, _seed[i], payload: {'text': _seed[i]});
+        index.add(i + 1, _seed[i], payload: {'text': _seed[i]});
       }
-      db.flush();
+      index.flush();
     }
     setState(() {
-      _db = db;
-      _status = '${db.count()} documents indexed';
+      _index = index;
+      _status = '${index.count()} documents indexed';
     });
     _runSearch();
   }
 
   void _runSearch() {
-    final db = _db;
-    if (db == null) return;
-    setState(() => _hits = db.search(_controller.text, limit: 5));
+    final index = _index;
+    if (index == null) return;
+    setState(() => _hits = index.search(_controller.text, limit: 5));
   }
 
   @override
   void dispose() {
-    _db?.close();
+    _index?.close();
     _controller.dispose();
     super.dispose();
   }
@@ -104,10 +101,12 @@ class _SearchPageState extends State<SearchPage> {
                 itemCount: _hits.length,
                 itemBuilder: (_, i) {
                   final h = _hits[i];
+                  final score = (h['score'] as num?)?.toDouble() ?? 0;
+                  final payload = h['payload'] as Map?;
                   return ListTile(
-                    leading: CircleAvatar(child: Text('${h.id}')),
-                    title: Text(h.payload?['text']?.toString() ?? '(no text)'),
-                    subtitle: Text('score: ${h.score.toStringAsFixed(4)}'),
+                    leading: CircleAvatar(child: Text('${h['id']}')),
+                    title: Text(payload?['text']?.toString() ?? '(no text)'),
+                    subtitle: Text('score: ${score.toStringAsFixed(4)}'),
                   );
                 },
               ),
