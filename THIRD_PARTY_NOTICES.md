@@ -1,10 +1,12 @@
 # Third-party notices
 
-This package includes Rust source adapted from the **qdrant-edge-ffi** crate in
+This package includes Rust source adapted from the **qdrant-edge-ffi** crate
+(v0.4.0) in
 [rust-dd/react-native-qdrant-edge](https://github.com/rust-dd/react-native-qdrant-edge),
 which provides the C ABI over the `qdrant-edge` engine (shard lifecycle, points,
-search/query, payload, field index, retrieve/scroll, facet, snapshot, config,
-and the BM25 embedder). It is used under the MIT License.
+search/query, grouping, search matrix, payload, field index, retrieve/scroll,
+facet, snapshot, config, and the BM25 embedder). It is used under the MIT
+License.
 
 ```
 MIT License

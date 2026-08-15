@@ -3,12 +3,19 @@
 use std::os::raw::c_char;
 
 use qdrant_edge::UpdateOperation;
+use qdrant_edge::external::serde_json;
 
 use crate::error::set_last_error;
 use crate::ffi_strings::cstr_to_str;
 use crate::handle::{QeShardHandle, with_shard};
 
 /// Create a field index.
+///
+/// `field_type` is either a bare type name (`"keyword"`, `"text"`, …) or — our
+/// addition on top of upstream — a JSON `PayloadFieldSchema` object for the
+/// index parameters a bare name can't express, e.g.
+/// `{"type":"text","tokenizer":"word","phrase_matching":true}`, which is what
+/// the `phrase` filter condition needs.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qe_shard_create_field_index(
     handle: *mut QeShardHandle,
@@ -25,6 +32,16 @@ pub unsafe extern "C" fn qe_shard_create_field_index(
             return -1;
         }
     };
+
+    if type_str.trim_start().starts_with('{') {
+        return match serde_json::from_str::<qdrant_edge::PayloadFieldSchema>(type_str) {
+            Ok(schema) => create_index(handle, field_path, schema),
+            Err(e) => {
+                set_last_error(format!("Invalid field schema: {e}"));
+                -1
+            }
+        };
+    }
 
     let schema = match type_str {
         "keyword" => {
@@ -48,6 +65,14 @@ pub unsafe extern "C" fn qe_shard_create_field_index(
         }
     };
 
+    create_index(handle, field_path, schema)
+}
+
+fn create_index(
+    handle: *mut QeShardHandle,
+    field_path: qdrant_edge::JsonPath,
+    schema: qdrant_edge::PayloadFieldSchema,
+) -> i32 {
     let op = UpdateOperation::FieldIndexOperation(qdrant_edge::FieldIndexOperations::CreateIndex(
         qdrant_edge::CreateIndex {
             field_name: field_path,
