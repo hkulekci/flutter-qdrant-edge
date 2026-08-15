@@ -1,5 +1,7 @@
 // Minimal example: index a few notes and search them on-device using the
 // TextIndex convenience (BM25 lexical search; pass a modelDir for hybrid).
+// The "group by topic" switch shows queryGroups: one entry per topic instead of
+// every matching note.
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -21,16 +23,19 @@ class SearchPage extends StatefulWidget {
 
 class _SearchPageState extends State<SearchPage> {
   TextIndex? _index;
-  final _controller = TextEditingController(text: 'brown fox');
+  final _controller = TextEditingController(text: 'fox');
   List<Map<String, dynamic>> _hits = [];
+  bool _grouped = false;
   String _status = 'opening...';
 
-  static const _seed = <String>[
-    'the quick brown fox jumps over the lazy dog',
-    'a fast auburn fox leaps above a sleepy hound',
-    'stock markets rallied on strong earnings reports',
-    'the central bank held interest rates steady',
-    'photosynthesis converts sunlight into chemical energy',
+  // (topic, text) — the topic is stored as payload so we can group on it.
+  static const _seed = <(String, String)>[
+    ('animals', 'the quick brown fox jumps over the lazy dog'),
+    ('animals', 'a fast auburn fox leaps above a sleepy hound'),
+    ('animals', 'the red fox hunts mice in the winter field'),
+    ('finance', 'stock markets rallied on strong earnings reports'),
+    ('finance', 'the central bank held interest rates steady'),
+    ('science', 'photosynthesis converts sunlight into chemical energy'),
   ];
 
   @override
@@ -41,12 +46,15 @@ class _SearchPageState extends State<SearchPage> {
 
   Future<void> _init() async {
     final dir = await getApplicationDocumentsDirectory();
-    final index = QdrantEdge().openTextIndex('${dir.path}/notes_db');
+    final index = QdrantEdge().openTextIndex('${dir.path}/notes_db_v2');
     if (index.count() == 0) {
       for (var i = 0; i < _seed.length; i++) {
-        index.add(i + 1, _seed[i], payload: {'text': _seed[i]});
+        final (topic, text) = _seed[i];
+        index.add(i + 1, text, payload: {'text': text, 'topic': topic});
       }
       index.flush();
+      // Grouping and ordered scroll read the field through its payload index.
+      index.shard.createFieldIndex('topic', 'keyword');
     }
     setState(() {
       _index = index;
@@ -58,7 +66,20 @@ class _SearchPageState extends State<SearchPage> {
   void _runSearch() {
     final index = _index;
     if (index == null) return;
-    setState(() => _hits = index.search(_controller.text, limit: 5));
+    final query = _controller.text;
+    setState(() {
+      if (!_grouped) {
+        _hits = index.search(query, limit: 5);
+        return;
+      }
+      // One line per topic: the group key plus its best hit.
+      _hits = index
+          .searchGroups(query, groupBy: 'topic', limit: 5, groupSize: 3)
+          .map((g) {
+        final hits = (g['hits'] as List).cast<Map<String, dynamic>>();
+        return {...hits.first, 'group': g['key'], 'groupSize': hits.length};
+      }).toList();
+    });
   }
 
   @override
@@ -95,7 +116,16 @@ class _SearchPageState extends State<SearchPage> {
                 FilledButton(onPressed: _runSearch, child: const Text('Go')),
               ],
             ),
-            const SizedBox(height: 16),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Group by topic'),
+              value: _grouped,
+              onChanged: (v) {
+                setState(() => _grouped = v);
+                _runSearch();
+              },
+            ),
+            const SizedBox(height: 8),
             Expanded(
               child: ListView.builder(
                 itemCount: _hits.length,
@@ -103,10 +133,14 @@ class _SearchPageState extends State<SearchPage> {
                   final h = _hits[i];
                   final score = (h['score'] as num?)?.toDouble() ?? 0;
                   final payload = h['payload'] as Map?;
+                  final group = h['group'];
                   return ListTile(
                     leading: CircleAvatar(child: Text('${h['id']}')),
                     title: Text(payload?['text']?.toString() ?? '(no text)'),
-                    subtitle: Text('score: ${score.toStringAsFixed(4)}'),
+                    subtitle: Text(group == null
+                        ? 'score: ${score.toStringAsFixed(4)}'
+                        : '$group · ${h['groupSize']} hit(s) · '
+                            'score: ${score.toStringAsFixed(4)}'),
                   );
                 },
               ),

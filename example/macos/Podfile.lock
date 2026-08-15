@@ -1,6 +1,6 @@
 PODS:
   - FlutterMacOS (1.0.0)
-  - qdrant_edge_flutter (0.1.0):
+  - qdrant_edge_flutter (0.2.0):
     - FlutterMacOS
 
 DEPENDENCIES:
@@ -15,7 +15,7 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  qdrant_edge_flutter: f3254d4cb1e7ebcd5e533f2c600160258dc6b4cb
+  qdrant_edge_flutter: 54eb78b48628b549181d9695434ac3262f56b20f
 
 PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
 
