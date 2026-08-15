@@ -12,6 +12,8 @@ extern void *qe_shard_create(const char *, const char *);
 extern int32_t qe_shard_upsert(void *, const char *);
 extern char *qe_shard_search(void *, const char *);
 extern char *qe_shard_query(void *, const char *);
+extern char *qe_shard_query_groups(void *, const char *);
+extern char *qe_shard_search_matrix(void *, const char *);
 extern int64_t qe_shard_count(void *, const char *);
 extern int32_t qe_shard_set_payload(void *, const char *);
 extern int32_t qe_shard_create_field_index(void *, const char *, const char *);
@@ -29,6 +31,8 @@ __attribute__((used)) static void *qdrant_edge_flutter_keepalive[] = {
     (void *)qe_shard_upsert,
     (void *)qe_shard_search,
     (void *)qe_shard_query,
+    (void *)qe_shard_query_groups,
+    (void *)qe_shard_search_matrix,
     (void *)qe_shard_count,
     (void *)qe_shard_set_payload,
     (void *)qe_shard_create_field_index,

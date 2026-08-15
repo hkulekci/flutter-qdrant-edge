@@ -89,7 +89,7 @@ mkfw() {
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>$FW</string>
   <key>CFBundlePackageType</key><string>FMWK</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>MinimumOSVersion</key><string>$MIN_IOS</string>
   <key>CFBundleSupportedPlatforms</key><array><string>$platform</string></array>
