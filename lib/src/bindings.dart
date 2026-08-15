@@ -109,7 +109,7 @@ class QdrantEdgeBindings {
         shardClose =
             lib.lookupFunction<_ShardVoidC, _ShardVoidDart>('qe_shard_close'),
         shardFlush =
-            lib.lookupFunction<_ShardVoidC, _ShardVoidDart>('qe_shard_flush'),
+            lib.lookupFunction<_ShardIntC, _ShardIntDart>('qe_shard_flush'),
         shardOptimize =
             lib.lookupFunction<_ShardIntC, _ShardIntDart>('qe_shard_optimize'),
         shardUpsert = lib
@@ -157,6 +157,10 @@ class QdrantEdgeBindings {
             'qe_shard_search'),
         shardQuery = lib.lookupFunction<_ShardStrJsonC, _ShardStrJsonDart>(
             'qe_shard_query'),
+        shardQueryGroups = lib.lookupFunction<_ShardStrJsonC,
+            _ShardStrJsonDart>('qe_shard_query_groups'),
+        shardSearchMatrix = lib.lookupFunction<_ShardStrJsonC,
+            _ShardStrJsonDart>('qe_shard_search_matrix'),
         shardScroll = lib.lookupFunction<_ShardStrJsonC, _ShardStrJsonDart>(
             'qe_shard_scroll'),
         shardFacet = lib.lookupFunction<_ShardStrJsonC, _ShardStrJsonDart>(
@@ -188,7 +192,7 @@ class QdrantEdgeBindings {
   final _ShardCreateDart shardLoad;
   final _RecoverDart recoverPartialSnapshot;
   final _ShardVoidDart shardClose;
-  final _ShardVoidDart shardFlush;
+  final _ShardIntDart shardFlush;
   final _ShardIntDart shardOptimize;
   final _ShardStrIntDart shardUpsert;
   final _ShardStrIntDart shardDeletePoints;
@@ -208,6 +212,8 @@ class QdrantEdgeBindings {
   final _ShardJsonDart shardSnapshotManifest;
   final _ShardStrJsonDart shardSearch;
   final _ShardStrJsonDart shardQuery;
+  final _ShardStrJsonDart shardQueryGroups;
+  final _ShardStrJsonDart shardSearchMatrix;
   final _ShardStrJsonDart shardScroll;
   final _ShardStrJsonDart shardFacet;
   final _RetrieveDart shardRetrieve;
