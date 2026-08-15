@@ -122,21 +122,114 @@ final hits = shard.query({
 
 `TextIndex` with a `modelDir` does exactly this for you.
 
+### Grouped results
+
+Ten hits from the same PDF are worse than one hit from ten PDFs. `queryGroups`
+collapses the result set by a payload field — `group_by` picks the field,
+`limit` is the number of groups, `group_size` the hits kept per group:
+
+```dart
+final groups = shard.queryGroups({
+  'query': queryEmbedding,
+  'using': 'dense',
+  'group_by': 'doc_id',
+  'limit': 5,        // 5 documents
+  'group_size': 3,   // best 3 passages each
+  'with_payload': true,
+});
+
+for (final g in groups) {
+  print('${g['key']}: ${(g['hits'] as List).length} passages');
+}
+```
+
+`TextIndex` has the same thing over text: `index.searchGroups(q, groupBy: 'doc')`.
+
+### Dedup and clustering (`searchMatrix`)
+
+Sample points and get each sample's nearest neighbors within the sample — enough
+to spot near-duplicates or cluster a library on-device, with no extra index:
+
+```dart
+final m = shard.searchMatrix({'sample': 100, 'limit': 3, 'using': 'dense'});
+final ids = m['sample_ids'] as List;
+final nearests = m['nearests'] as List;   // nearests[i] ≈ neighbors of ids[i]
+```
+
+### Search params
+
+Every search/query/prefetch takes a `params` map that tunes just that call:
+
+```dart
+shard.search({
+  'vector': queryEmbedding,
+  'using': 'dense',
+  'limit': 10,
+  'params': {
+    'hnsw_ef': 256,        // more candidates: better recall, slower
+    'exact': false,        // true = brute force, ignore the index
+    'indexed_only': true,  // skip segments still being indexed
+  },
+});
+```
+
+Shard-wide, `max_search_threads` (and `search_pool_core`) in the shard config cap
+the pool that reads segments in parallel — useful on phones so a search doesn't
+take every core from the UI.
+
+### Filters, ordering, and stemming
+
+`match` accepts the new text conditions `prefix`, `phrase` and `text_any`, and
+filters gained `has_vector` and `slice` (deterministic sharding of the point set):
+
+```dart
+// `phrase` needs a text index built with phrase matching on:
+shard.createFieldIndex('body', {
+  'type': 'text', 'tokenizer': 'word', 'phrase_matching': true,
+});
+shard.createFieldIndex('created_at', 'datetime');   // ordering needs an index
+
+shard.scroll({
+  'filter': {
+    'must': [
+      {'key': 'title', 'match': {'prefix': 'quarter'}},
+      {'key': 'body', 'match': {'phrase': 'net revenue'}},
+    ],
+  },
+  'order_by': {'key': 'created_at', 'direction': 'desc'},
+  'limit': 20,
+});
+```
+
+BM25 picks stopwords and a stemmer from `language`; `{'type': 'none'}` turns
+stemming off for content it would mangle (code, ids, product names):
+
+```dart
+final bm25 = client.createBm25(config: {
+  'language': 'turkish',
+  'stemmer': {'type': 'none'},
+});
+```
+
+`shard.info()` reports `payload_schema` — which fields are indexed, their type,
+and how many points carry them.
+
 ## API overview
 
 **`QdrantEdge`** (client): `createShard(path, config)`, `loadShard(path)`,
 `createBm25()`, `createDense(modelDir)`, `openTextIndex(path, {modelDir})`,
 `unpackSnapshot`, `recoverPartialSnapshot`.
 
-**`Shard`**: `upsert`, `deletePoints`, `search`, `query`, `retrieve`, `scroll`,
-`count`, `info`, `facet`, `setPayload` / `overwritePayload` / `deletePayload` /
-`clearPayload`, `createFieldIndex` / `deleteFieldIndex`, `createVectorName` /
-`deleteVectorName`, `setHnswConfig` / `setVectorHnswConfig` /
-`setOptimizersConfig`, `snapshotManifest`, `flush`, `optimize`, `close`.
+**`Shard`**: `upsert`, `deletePoints`, `search`, `query`, `queryGroups`,
+`searchMatrix`, `retrieve`, `scroll`, `count`, `info`, `facet`, `setPayload` /
+`overwritePayload` / `deletePayload` / `clearPayload`, `createFieldIndex` /
+`deleteFieldIndex`, `createVectorName` / `deleteVectorName`, `setHnswConfig` /
+`setVectorHnswConfig` / `setOptimizersConfig`, `snapshotManifest`, `flush`,
+`optimize`, `close`.
 
 **`Bm25`**: `embedQuery`, `embedDocument`, `close`.
 **`Dense`**: `embed`, `close`.
-**`TextIndex`**: `add`, `search`, `count`, `flush`, `close`.
+**`TextIndex`**: `add`, `search`, `searchGroups`, `count`, `flush`, `close`.
 
 Errors surface as `QdrantEdgeException` with the message from the engine.
 
