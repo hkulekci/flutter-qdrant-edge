@@ -157,10 +157,12 @@ class QdrantEdgeBindings {
             'qe_shard_search'),
         shardQuery = lib.lookupFunction<_ShardStrJsonC, _ShardStrJsonDart>(
             'qe_shard_query'),
-        shardQueryGroups = lib.lookupFunction<_ShardStrJsonC,
-            _ShardStrJsonDart>('qe_shard_query_groups'),
-        shardSearchMatrix = lib.lookupFunction<_ShardStrJsonC,
-            _ShardStrJsonDart>('qe_shard_search_matrix'),
+        shardQueryGroups =
+            lib.lookupFunction<_ShardStrJsonC, _ShardStrJsonDart>(
+                'qe_shard_query_groups'),
+        shardSearchMatrix =
+            lib.lookupFunction<_ShardStrJsonC, _ShardStrJsonDart>(
+                'qe_shard_search_matrix'),
         shardScroll = lib.lookupFunction<_ShardStrJsonC, _ShardStrJsonDart>(
             'qe_shard_scroll'),
         shardFacet = lib.lookupFunction<_ShardStrJsonC, _ShardStrJsonDart>(

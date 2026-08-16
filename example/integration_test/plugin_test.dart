@@ -104,7 +104,10 @@ void main() {
     expect(
       shard.count(filter: {
         'must': [
-          {'key': 'topic', 'match': {'prefix': 'anim'}},
+          {
+            'key': 'topic',
+            'match': {'prefix': 'anim'}
+          },
         ],
       }),
       3,
@@ -114,7 +117,10 @@ void main() {
     final phrase = shard.scroll({
       'filter': {
         'must': [
-          {'key': 'text', 'match': {'phrase': 'brown fox'}},
+          {
+            'key': 'text',
+            'match': {'phrase': 'brown fox'}
+          },
         ],
       },
       'with_payload': true,
