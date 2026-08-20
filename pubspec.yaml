@@ -1,9 +1,15 @@
 name: qdrant_edge_flutter
-description: On-device vector search for Flutter, powered by the qdrant-edge Rust crate with built-in BM25 text embedding.
+description: "On-device Qdrant vector database for Flutter: dense, sparse (BM25) and hybrid search with filters, grouping and payloads, fully offline."
 version: 0.2.0
 repository: https://github.com/hkulekci/flutter-qdrant-edge
 homepage: https://github.com/hkulekci/flutter-qdrant-edge
 issue_tracker: https://github.com/hkulekci/flutter-qdrant-edge/issues
+topics:
+  - vector-database
+  - search
+  - embeddings
+  - offline
+  - ffi
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
