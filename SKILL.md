@@ -20,8 +20,10 @@ Repo: https://github.com/hkulekci/flutter-qdrant-edge
 ## What it does
 
 - **Vector store:** shards, upsert, search, hybrid `query` (prefetch + fusion),
-  retrieve, scroll, count, info, facet, payload ops, filters, field indexes,
-  runtime named vectors, HNSW/optimizer config, snapshots.
+  grouped results (`queryGroups`), `searchMatrix` (sample + neighbors, for dedup
+  and clustering), retrieve, ordered scroll, count, info, facet, payload ops,
+  filters, field indexes, runtime named vectors, HNSW/optimizer config,
+  snapshots.
 - **On-device embedders:** BM25 sparse (built into qdrant-edge, no model) and an
   optional pure-Rust `candle` MiniLM dense embedder (no ONNX Runtime).
 - **Hybrid:** fuse dense + BM25 with Reciprocal Rank Fusion (RRF) or DBSF.
@@ -41,9 +43,10 @@ Dart (QdrantEdge / Shard / Bm25 / Dense)  ──dart:ffi──▶  C ABI (qe_sha
 
 - The C ABI is the vendored, JSON-forwarding `qdrant-edge-ffi` crate (MIT, from
   rust-dd/react-native-qdrant-edge), laid out as modules under `rust/src/`
-  (`lifecycle.rs`, `points.rs`, `search_query.rs`, `payload.rs`, `field_index.rs`,
-  `retrieve_scroll.rs`, `facet.rs`, `snapshot.rs`, `config.rs`, `info.rs`,
-  `bm25.rs`, `serde_types.rs`). Our additions: `embed.rs` + `dense.rs` (the
+  (`lifecycle.rs`, `points.rs`, `search_query.rs`, `grouping.rs`, `matrix.rs`,
+  `payload.rs`, `field_index.rs`, `retrieve_scroll.rs`, `facet.rs`,
+  `snapshot.rs`, `config.rs`, `info.rs`, `bm25.rs`, `serde_types/`). Our
+  additions: `embed.rs` + `dense.rs` (the
   candle dense embedder, cargo feature `dense`, on by default). The C header is
   cbindgen-generated at `rust/include/qdrant_edge_flutter.h`.
 - Dart loads symbols with `DynamicLibrary.process()` (iOS/macOS) or
@@ -112,6 +115,19 @@ final out = shard.query({
 });
 shard.deletePoints([1]);
 shard.setPayload({'payload': {'tag': 'x'}, 'filter': {'must': [{'key': 'doc', 'match': {'value': 'a.pdf'}}]}});
+
+// Best passages per document instead of many passages from one document.
+final groups = shard.queryGroups({
+  'query': dense.embed(q), 'using': 'dense',
+  'group_by': 'doc', 'limit': 5, 'group_size': 3, 'with_payload': true,
+}); // [{key, hits: [...]}, ...]
+
+// Near-duplicate detection / clustering without a second index.
+final matrix = shard.searchMatrix({'sample': 100, 'limit': 3, 'using': 'dense'});
+
+// Per-call tuning; also valid inside a prefetch.
+shard.search({'vector': v, 'using': 'dense', 'limit': 10,
+              'params': {'hnsw_ef': 256, 'indexed_only': true}});
 ```
 
 Notes:
@@ -146,6 +162,7 @@ Notes:
   `rust/src/lib.rs`, regenerate `rust/include/qdrant_edge_flutter.h` with
   cbindgen, update `Classes/qdrant_edge_flutter_keepalive.c` and Dart
   `lib/src/bindings.dart` + the high-level wrapper in `lib/qdrant_edge_flutter.dart`.
-- Request/response JSON shapes (points, search, query, filters): `rust/src/serde_types.rs`.
+- Request/response JSON shapes (points, search, query, filters): `rust/src/serde_types/`
+  (`requests.rs`, `clauses.rs`, `vectors.rs`, `outputs.rs`, `point.rs`).
 - Dense embedder: `rust/src/embed.rs` (model) + `rust/src/dense.rs` (C ABI).
 - Rebuild binaries: `scripts/build-ios.sh`, `build-android.sh`, `build-macos.sh`.

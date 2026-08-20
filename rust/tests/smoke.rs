@@ -150,6 +150,56 @@ fn bm25_only_lexical_search() {
     }
 }
 
+/// A field index created from a JSON `PayloadFieldSchema` (our extension to the
+/// upstream bare-type-name argument). Only a parameterized text index enables
+/// the `phrase` filter condition, so this is what makes phrase search reachable
+/// from Dart.
+#[test]
+fn json_field_schema_enables_phrase_filter() {
+    use qdrant_edge_flutter::qe_shard_create_field_index;
+    unsafe {
+        let dir = std::env::temp_dir().join(format!("qe_phrase_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = cs(dir.to_str().unwrap());
+
+        let config = cs(r#"{"vectors":{"":{"size":2,"distance":"Cosine"}}}"#);
+        let shard = qe_shard_create(path.as_ptr(), config.as_ptr());
+        assert!(!shard.is_null(), "create failed: {}", take_error());
+
+        let points = cs(r#"[
+            {"id":1,"vector":[1.0,0.0],"payload":{"body":"net revenue rose sharply"}},
+            {"id":2,"vector":[0.0,1.0],"payload":{"body":"revenue was flat but net margin grew"}}
+        ]"#);
+        assert_eq!(qe_shard_upsert(shard, points.as_ptr()), 0, "upsert: {}", take_error());
+
+        let schema = cs(r#"{"type":"text","tokenizer":"word","phrase_matching":true}"#);
+        assert_eq!(
+            qe_shard_create_field_index(shard, cs("body").as_ptr(), schema.as_ptr()),
+            0,
+            "json field schema: {}",
+            take_error()
+        );
+
+        // Both points contain "net" and "revenue"; only one has them adjacent.
+        let phrase = cs(r#"{"must":[{"key":"body","match":{"phrase":"net revenue"}}]}"#);
+        assert_eq!(qe_shard_count(shard, phrase.as_ptr()), 1, "phrase: {}", take_error());
+        let text = cs(r#"{"must":[{"key":"body","match":{"text":"net revenue"}}]}"#);
+        assert_eq!(qe_shard_count(shard, text.as_ptr()), 2, "text: {}", take_error());
+
+        // A bare type name still works.
+        assert_eq!(
+            qe_shard_create_field_index(shard, cs("body").as_ptr(), cs("keyword").as_ptr()),
+            0,
+            "bare type name still accepted: {}",
+            take_error()
+        );
+
+        qe_shard_close(shard);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[cfg(feature = "dense")]
 unsafe fn take_str(p: *mut std::os::raw::c_char) -> String {
     let s = unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();

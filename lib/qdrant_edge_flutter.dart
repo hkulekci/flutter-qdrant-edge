@@ -75,6 +75,10 @@ class QdrantEdge {
   /// `{'vectors': {'dense': {'size': 384, 'distance': 'Cosine'}},
   ///   'sparse_vectors': {'bm25': {'modifier': 'idf'}}}`.
   /// The directory is created if needed.
+  ///
+  /// `max_search_threads` (and `search_pool_core`) size the pool that reads
+  /// segments in parallel — worth capping on phones so a search doesn't fight
+  /// the UI thread for cores.
   Shard createShard(String path, Map<String, dynamic> config) {
     Directory(path).createSync(recursive: true);
     return _openShard(path, jsonEncode(config), create: true);
@@ -100,7 +104,9 @@ class QdrantEdge {
   }
 
   /// Construct an on-device BM25 sparse embedder. [config] is an optional
-  /// `EdgeBm25Config` map (omit for defaults).
+  /// `EdgeBm25Config` map (omit for defaults) — `{'language': 'turkish'}` picks
+  /// the stopword list and stemmer, `{'stemmer': {'type': 'none'}}` turns
+  /// stemming off (useful for code, ids, or languages the stemmer mangles).
   Bm25 createBm25({Map<String, dynamic>? config}) {
     final b = bindings;
     final c = (config == null ? '' : jsonEncode(config)).toNativeUtf8();
@@ -241,8 +247,12 @@ class Shard {
       _strOp(_b.shardDeletePoints, jsonEncode(ids), 'deletePoints');
 
   /// Nearest-neighbor search. [request] is a `SearchRequest` map
-  /// (`{vector, using?, limit, filter?, with_payload?, ...}`). Returns scored
-  /// points.
+  /// (`{vector, using?, limit, filter?, with_payload?, params?, ...}`). Returns
+  /// scored points.
+  ///
+  /// `params` tunes this one call: `{'hnsw_ef': 128}` trades latency for recall,
+  /// `{'exact': true}` brute-forces the segment, `{'indexed_only': true}` skips
+  /// segments that are still being indexed.
   List<Map<String, dynamic>> search(Map<String, dynamic> request) =>
       (_strJson(_b.shardSearch, jsonEncode(request), 'search') as List)
           .cast<Map<String, dynamic>>();
@@ -252,6 +262,28 @@ class Shard {
   List<Map<String, dynamic>> query(Map<String, dynamic> request) =>
       (_strJson(_b.shardQuery, jsonEncode(request), 'query') as List)
           .cast<Map<String, dynamic>>();
+
+  /// Like [query], but collapses the hits into groups sharing a payload field —
+  /// e.g. the best passages per document instead of ten passages from one
+  /// document. [request] is a `QueryRequest` map plus `group_by` (payload key),
+  /// `limit` (number of groups) and `group_size` (hits per group, default 3).
+  ///
+  /// Returns `[{key, hits: [...]}, ...]`, hits carrying the payload/vector you
+  /// asked for.
+  List<Map<String, dynamic>> queryGroups(Map<String, dynamic> request) =>
+      (_strJson(_b.shardQueryGroups, jsonEncode(request), 'queryGroups')
+              as List)
+          .cast<Map<String, dynamic>>();
+
+  /// Sample points and return each sample's nearest neighbors within the
+  /// sample — the building block for on-device dedup and clustering.
+  /// [request] is `{sample?, limit?, using?, filter?}` (defaults: 10 samples,
+  /// 3 neighbors each). Returns `{sample_ids, nearests}` where `nearests[i]`
+  /// are the neighbors of `sample_ids[i]`.
+  Map<String, dynamic> searchMatrix([Map<String, dynamic>? request]) =>
+      (_strJson(_b.shardSearchMatrix, jsonEncode(request ?? const {}),
+              'searchMatrix') as Map)
+          .cast<String, dynamic>();
 
   /// Retrieve points by id.
   List<Map<String, dynamic>> retrieve(
@@ -272,6 +304,9 @@ class Shard {
 
   /// Paginated scroll. [request] is a `ScrollRequest` map. Returns
   /// `{points, next_offset}`.
+  ///
+  /// Pass `order_by` to walk an indexed payload field instead of point ids,
+  /// e.g. `{'order_by': {'key': 'created_at', 'direction': 'desc'}}`.
   Map<String, dynamic> scroll(Map<String, dynamic> request) =>
       (_strJson(_b.shardScroll, jsonEncode(request), 'scroll') as Map)
           .cast<String, dynamic>();
@@ -289,7 +324,9 @@ class Shard {
     }
   }
 
-  /// Shard metadata (`{points_count, segments_count, ...}`).
+  /// Shard metadata (`{points_count, segments_count, indexed_vectors_count,
+  /// payload_schema}`). `payload_schema` maps each indexed payload field to its
+  /// data type and indexed point count.
   Map<String, dynamic> info() {
     _check();
     return (_takeJson(_b, _b.shardInfo(_h), 'info') as Map)
@@ -320,11 +357,14 @@ class Shard {
       _strOp(_b.shardClearPayload, jsonEncode(target), 'clearPayload');
 
   /// Create a payload field index. [type] is one of `keyword`, `integer`,
-  /// `float`, `geo`, `text`, `bool`, `datetime`.
-  void createFieldIndex(String field, String type) {
+  /// `float`, `geo`, `text`, `bool`, `datetime` — or a schema `Map` when the
+  /// index needs parameters, e.g.
+  /// `{'type': 'text', 'tokenizer': 'word', 'phrase_matching': true}`, which is
+  /// what the `phrase` filter condition requires.
+  void createFieldIndex(String field, Object type) {
     _check();
     final f = field.toNativeUtf8();
-    final t = type.toNativeUtf8();
+    final t = (type is String ? type : jsonEncode(type)).toNativeUtf8();
     try {
       if (_b.shardCreateFieldIndex(_h, f, t) != 0)
         _fail(_b, 'createFieldIndex');
@@ -385,7 +425,7 @@ class Shard {
   /// Flush pending writes to disk.
   void flush() {
     _check();
-    _b.shardFlush(_h);
+    if (_b.shardFlush(_h) != 0) _fail(_b, 'flush');
   }
 
   /// Run optimizers. Returns 1 if work was done, 0 if already optimal.
@@ -511,34 +551,70 @@ class TextIndex {
   }
 
   /// Search for [text]. Lexical (BM25) unless hybrid, in which case dense + BM25
-  /// are fused with Reciprocal Rank Fusion.
+  /// are fused with Reciprocal Rank Fusion. [params] are engine search params
+  /// (`hnsw_ef`, `exact`, `indexed_only`, …) for this call.
   List<Map<String, dynamic>> search(
     String text, {
     int limit = 10,
     bool withPayload = true,
     Map<String, dynamic>? filter,
-  }) {
+    Map<String, dynamic>? params,
+  }) =>
+      shard.query(_request(text, limit, withPayload, filter, params));
+
+  /// Search for [text] but return at most [groupSize] hits per distinct value of
+  /// the payload key [groupBy] — one entry per document instead of ten passages
+  /// from the same document. [limit] is the number of groups.
+  List<Map<String, dynamic>> searchGroups(
+    String text, {
+    required String groupBy,
+    int limit = 10,
+    int groupSize = 3,
+    bool withPayload = true,
+    Map<String, dynamic>? filter,
+    Map<String, dynamic>? params,
+  }) =>
+      shard.queryGroups({
+        ..._request(text, limit, withPayload, filter, params),
+        'group_by': groupBy,
+        'group_size': groupSize,
+      });
+
+  /// The query body shared by [search] and [searchGroups]: a BM25 nearest
+  /// query, or a dense + BM25 RRF query when hybrid.
+  Map<String, dynamic> _request(
+    String text,
+    int limit,
+    bool withPayload,
+    Map<String, dynamic>? filter,
+    Map<String, dynamic>? params,
+  ) {
     final sparse = _bm25.embedQuery(text);
     if (_dense == null) {
-      return shard.search({
-        'vector': sparse,
+      return {
+        'query': sparse,
         'using': 'bm25',
         'limit': limit,
         'with_payload': withPayload,
         if (filter != null) 'filter': filter,
-      });
+        if (params != null) 'params': params,
+      };
     }
-    final dense = _dense.embed(text);
-    return shard.query({
+    return {
       'prefetch': [
-        {'query': dense, 'using': 'dense', 'limit': limit * 5},
+        {
+          'query': _dense.embed(text),
+          'using': 'dense',
+          'limit': limit * 5,
+          if (params != null) 'params': params,
+        },
         {'query': sparse, 'using': 'bm25', 'limit': limit * 5},
       ],
       'query': {'fusion': 'rrf'},
       'limit': limit,
       'with_payload': withPayload,
       if (filter != null) 'filter': filter,
-    });
+    };
   }
 
   /// Number of stored documents.

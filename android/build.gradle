@@ -6,7 +6,7 @@
 // automatically, so this module only needs to be a valid AAR library.
 
 group = "tech.qdrant.qdrant_edge_flutter"
-version = "0.1.0"
+version = "0.2.0"
 
 buildscript {
     repositories {

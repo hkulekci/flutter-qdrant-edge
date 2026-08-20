@@ -9,7 +9,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'qdrant_edge_flutter'
-  s.version          = '0.1.0'
+  s.version          = '0.2.0'
   s.summary          = 'On-device vector search for Flutter (qdrant-edge + BM25).'
   s.description      = 'On-device vector search powered by the qdrant-edge Rust crate with built-in BM25 embedding.'
   s.homepage         = 'https://github.com/hkulekci/flutter-qdrant-edge'
